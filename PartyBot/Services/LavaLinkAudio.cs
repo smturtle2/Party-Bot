@@ -15,6 +15,10 @@ namespace PartyBot.Services
     public sealed class LavaLinkAudio
     {
         private readonly LavaNode _lavaNode;
+        bool isLoop = false;
+        bool isShuffle = false;
+        int max = 0;
+        SearchResponse Search;
 
         public LavaLinkAudio(LavaNode lavaNode)
             => _lavaNode = lavaNode;
@@ -64,22 +68,69 @@ namespace PartyBot.Services
                 //Get the player for that guild.
                 var player = _lavaNode.GetPlayer(guild);
 
-                //Find The Youtube Track the User requested.
-                LavaTrack track;
-
-                var search = Uri.IsWellFormedUriString(query, UriKind.Absolute) ?
+                Search = Uri.IsWellFormedUriString(query, UriKind.Absolute) ?
                     await _lavaNode.SearchAsync(query)
                     : await _lavaNode.SearchYouTubeAsync(query);
 
                 //If we couldn't find anything, tell the user.
-                if (search.LoadStatus == LoadStatus.NoMatches)
+                if (Search.LoadStatus == LoadStatus.NoMatches)
                 {
                     return await EmbedHandler.CreateErrorEmbed("Music", $"I wasn't able to find anything for {query}.");
                 }
 
                 //Get the first track from the search results.
                 //TODO: Add a 1-5 list for the user to pick from. (Like Fredboat)
-                track = search.Tracks.FirstOrDefault();
+                var tracks = "";
+                max = (int)MathF.Min(11, Search.Tracks.Count);
+                for (int i = 0; i < max; i++)
+                {
+                    tracks += $"{i + 1}: {Search.Tracks.ElementAtOrDefault(i).Title}\n";
+                }
+                return await EmbedHandler.CreateBasicEmbed($"총 {max}개의 노래를 찾았어", $"{tracks}" +
+                    $"\n\n 노래는 \"{GlobalData.Config.DefaultPrefix}p 숫자\"로 선택할 수 있어", Color.Blue);
+            }
+
+            //If after all the checks we did, something still goes wrong. Tell the user about it so they can report it back to us.
+            catch (Exception ex)
+            {
+                return await EmbedHandler.CreateErrorEmbed("Music, Play", ex.Message);
+            }
+
+        }
+        public async Task<Embed> ChoosePlayAsync(SocketGuildUser user, IGuild guild, string select)
+        {
+            var _select = int.Parse(select);
+            //Check If User Is Connected To Voice Cahnnel.
+            if (user.VoiceChannel == null)
+            {
+                return await EmbedHandler.CreateErrorEmbed("Music, Join/Play", "You Must First Join a Voice Channel.");
+            }
+
+            //Check the guild has a player available.
+            if (!_lavaNode.HasPlayer(guild))
+            {
+                return await EmbedHandler.CreateErrorEmbed("Music, Play", "I'm not connected to a voice channel.");
+            }
+
+            if(Search.Tracks == null)
+            {
+                return await EmbedHandler.CreateErrorEmbed("Music", $"먼저 노래를 검색해줘");
+            }
+
+            if (Search.Tracks.Count == 0)
+            {
+                return await EmbedHandler.CreateErrorEmbed("Music", $"검색된 노래가 없어");
+            }
+
+            if(_select > Search.Tracks.Count || _select > max)
+            {
+                return await EmbedHandler.CreateErrorEmbed("Music", $"목록에 존재하지 않는 노래야");
+            }
+
+            try
+            {
+                var player = _lavaNode.GetPlayer(guild);
+                LavaTrack track = Search.Tracks.ElementAtOrDefault(_select - 1);
 
                 //If the Bot is already playing music, or if it is paused but still has music in the playlist, Add the requested track to the queue.
                 if (player.Track != null && player.PlayerState is PlayerState.Playing || player.PlayerState is PlayerState.Paused)
@@ -92,15 +143,13 @@ namespace PartyBot.Services
                 //Player was not playing anything, so lets play the requested track.
                 await player.PlayAsync(track);
                 await LoggingService.LogInformationAsync("Music", $"Bot Now Playing: {track.Title}\nUrl: {track.Url}");
-                return await EmbedHandler.CreateBasicEmbed("Music", $"Now Playing: {track.Title}\nUrl: {track.Url}", Color.Blue);
+                return await EmbedHandler.CreateBasicEmbed("Music", $"\"{track.Title}\"를 재생하고 있어\nUrl: {track.Url}", Color.Blue);
             }
-
-            //If after all the checks we did, something still goes wrong. Tell the user about it so they can report it back to us.
-            catch (Exception ex)
+            //Tell the user about the error so they can report it back to us.
+            catch (InvalidOperationException ex)
             {
-                return await EmbedHandler.CreateErrorEmbed("Music, Play", ex.Message);
+                return await EmbedHandler.CreateErrorEmbed("Music, Leave", ex.Message);
             }
-
         }
 
         /*This is ran when a user uses the command Leave.
@@ -191,27 +240,18 @@ namespace PartyBot.Services
                     return await EmbedHandler.CreateErrorEmbed("Music, List", $"Could not aquire player.\nAre you using the bot right now? check{GlobalData.Config.DefaultPrefix}Help for info on how to use the bot.");
                 /* Check The queue, if it is less than one (meaning we only have the current song available to skip) it wont allow the user to skip.
                      User is expected to use the Stop command if they're only wanting to skip the current song. */
-                if (player.Queue.Count < 1)
+                try
                 {
-                    return await EmbedHandler.CreateErrorEmbed("Music, SkipTrack", $"Unable To skip a track as there is only One or No songs currently playing." +
-                        $"\n\nDid you mean {GlobalData.Config.DefaultPrefix}Stop?");
+                    /* Save the current song for use after we skip it. */
+                    var currentTrack = player.Track;
+                    /* Skip the current song. */
+                    await player.SeekAsync(currentTrack.Duration.Subtract(TimeSpan.FromSeconds(2)));
+                    await LoggingService.LogInformationAsync("Music", $"Bot skipped: {currentTrack.Title}");
+                    return await EmbedHandler.CreateBasicEmbed("Music Skip", $"I have successfully skiped {currentTrack.Title}", Color.Blue);
                 }
-                else
+                catch (Exception ex)
                 {
-                    try
-                    {
-                        /* Save the current song for use after we skip it. */
-                        var currentTrack = player.Track;
-                        /* Skip the current song. */
-                        await player.SkipAsync();
-                        await LoggingService.LogInformationAsync("Music", $"Bot skipped: {currentTrack.Title}");
-                        return await EmbedHandler.CreateBasicEmbed("Music Skip", $"I have successfully skiped {currentTrack.Title}", Color.Blue);
-                    }
-                    catch (Exception ex)
-                    {
-                        return await EmbedHandler.CreateErrorEmbed("Music, Skip", ex.Message);
-                    }
-
+                    return await EmbedHandler.CreateErrorEmbed("Music, Skip", ex.Message);
                 }
             }
             catch (Exception ex)
@@ -288,6 +328,81 @@ namespace PartyBot.Services
             }
         }
 
+        public async Task<string> ShuffleAsync(IGuild guild)
+        {
+            try
+            {
+                var player = _lavaNode.GetPlayer(guild);
+                if (player.Queue.Count == 0)
+                {
+                    return $"섞을 트랙이 없어";
+                }
+                isShuffle = !isShuffle;
+                if (isShuffle)
+                {
+                    player.Queue.Shuffle();
+                    return $"이제부터 계속 트랙을 섞을 거야";
+                }
+                else
+                {
+                    return $"더 이상 트랙을 섞지 않을 거야";
+                }
+            }
+            catch (InvalidOperationException ex)
+            {
+                return ex.Message;
+            }
+        }
+        public async Task<string> LoopAsync(IGuild guild)
+        {
+            try
+            {
+                var player = _lavaNode.GetPlayer(guild);
+                if (player.Queue.Count == 0 && player.Track == null)
+                {
+                    return $"반복할 트랙이 없어";
+                }
+                isLoop = !isLoop;
+                if (isLoop)
+                {
+                    return $"이제부터 트랙을 반복할 거야";
+                }
+                else
+                {
+                    return $"더 이상 트랙을 반복하지 않을 거야";
+                }
+            }
+            catch (InvalidOperationException ex)
+            {
+                return ex.Message;
+            }
+        }
+        public async Task<Embed> DeleteAsync(IGuild guild, string select)
+        {
+            try
+            {
+                var player = _lavaNode.GetPlayer(guild);
+                var _select = int.Parse(select) - 2;
+
+                if (_select > player.Queue.Count - 1)
+                {
+                    return await EmbedHandler.CreateErrorEmbed("Music", $"PlayList에 존재하지 않는 노래야");
+                }
+
+                var track = player.Queue.ElementAt(_select) as LavaTrack;
+
+                var EmbedText = $"[\"{track.Title}\"]({track.Url})";
+
+                player.Queue.RemoveAt(_select);
+
+                return await EmbedHandler.CreateBasicEmbed("삭제한 노래", EmbedText, Color.Blue);
+            }
+            catch (InvalidOperationException ex)
+            {
+                return await EmbedHandler.CreateErrorEmbed("Music", ex.Message);
+            }
+        }
+
         public async Task<string> ResumeAsync(IGuild guild)
         {
             try
@@ -299,7 +414,15 @@ namespace PartyBot.Services
                     await player.ResumeAsync(); 
                 }
 
-                return $"**Resumed:** {player.Track.Title}";
+
+                if (player.Queue.Count > 0)
+                {
+                    return $"**Resumed:** {player.Track.Title}";
+                }
+                else
+                {
+                    return "다시 재생할 트랙이 없어";
+                }
             }
             catch (InvalidOperationException ex)
             {
@@ -309,6 +432,17 @@ namespace PartyBot.Services
 
         public async Task TrackEnded(TrackEndedEventArgs args)
         {
+
+            if (isShuffle && args.Player.Queue.Count > 0)
+            {
+                args.Player.Queue.Shuffle();
+            }
+
+            if (isLoop && args.Player.Queue.Count > 0)
+            {
+                args.Player.Queue.Enqueue(args.Track);
+            }
+
             if (!args.Reason.ShouldPlayNext())
             {
                 return;
@@ -325,10 +459,9 @@ namespace PartyBot.Services
                 await args.Player.TextChannel.SendMessageAsync("Next item in queue is not a track.");
                 return;
             }
-
             await args.Player.PlayAsync(track);
             await args.Player.TextChannel.SendMessageAsync(
-                embed: await EmbedHandler.CreateBasicEmbed("Now Playing", $"[{track.Title}]({track.Url})", Color.Blue));
+                embed: await EmbedHandler.CreateBasicEmbed("Now Playing", $"[\"{track.Title}\"]({track.Url})", Color.Blue));
         }
     }
 }

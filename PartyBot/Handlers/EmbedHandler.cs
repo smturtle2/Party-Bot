@@ -24,8 +24,8 @@ namespace PartyBot.Handlers
         public static async Task<Embed> CreateErrorEmbed(string source, string error)
         {
             var embed = await Task.Run(() => new EmbedBuilder()
-                .WithTitle($"ERROR OCCURED FROM - {source}")
-                .WithDescription($"**Error Deaitls**: \n{error}")
+                .WithTitle($"{source}에서 오류 발생")
+                .WithDescription($"**오류 내용**: \n{error}")
                 .WithColor(Color.DarkRed)
                 .WithCurrentTimestamp().Build());
             return embed;

@@ -7,6 +7,7 @@ using System;
 using System.Threading.Tasks;
 using Victoria;
 
+
 namespace PartyBot.Services
 {
     public class DiscordService
@@ -90,6 +91,7 @@ namespace PartyBot.Services
             return new ServiceCollection()
                 .AddSingleton<DiscordSocketClient>()
                 .AddSingleton<CommandService>()
+                .AddSingleton<SocketUserMessage>()
                 .AddSingleton<CommandHandler>()
                 .AddSingleton<LavaNode>()
                 .AddSingleton(new LavaConfig())

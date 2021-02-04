@@ -24,8 +24,12 @@ namespace PartyBot.Modules
             => await ReplyAsync(embed: await AudioService.LeaveAsync(Context.Guild));
 
         [Command("Play")]
-        public async Task Play([Remainder]string search)
+        public async Task Play([Remainder] string search)
             => await ReplyAsync(embed: await AudioService.PlayAsync(Context.User as SocketGuildUser, Context.Guild, search));
+
+        [Command("P")]
+        public async Task ChoosePlay([Remainder] string select)
+            => await ReplyAsync(embed: await AudioService.ChoosePlayAsync(Context.User as SocketGuildUser, Context.Guild, select));
 
         [Command("Stop")]
         public async Task Stop()
@@ -50,5 +54,16 @@ namespace PartyBot.Modules
         [Command("Resume")]
         public async Task Resume()
             => await ReplyAsync(await AudioService.ResumeAsync(Context.Guild));
+
+        [Command("Shuffle")]
+        public async Task Shuffle()
+            => await ReplyAsync(await AudioService.ShuffleAsync(Context.Guild));
+
+        [Command("Loop")]
+        public async Task Loop()
+            => await ReplyAsync(await AudioService.LoopAsync(Context.Guild));
+        [Command("Del")]
+        public async Task Delete([Remainder] string select)
+            => await ReplyAsync(embed: await AudioService.DeleteAsync(Context.Guild, select));
     }
 }
